@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schwarmintelligenz – Boids</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#e6edf3;
+    --dim:#8b949e; --accent:#58a6ff; --accent2:#3fb950;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:13px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    display:flex; overflow:hidden;
+  }
+  #stage{position:relative; flex:1 1 auto; min-width:0}
+  canvas{display:block; width:100%; height:100%}
+  #hud{
+    position:absolute; top:10px; left:12px; pointer-events:none;
+    font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:var(--dim); text-shadow:0 1px 2px #000;
+  }
+  #hud b{color:var(--accent2); font-weight:600}
+
+  aside{
+    flex:0 0 288px; background:var(--panel); border-left:1px solid var(--line);
+    padding:16px 16px 24px; overflow-y:auto;
+  }
+  h1{font-size:15px; margin:0 0 2px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--dim); font-size:11px; margin:0 0 16px}
+  fieldset{border:0; border-top:1px solid var(--line); margin:0 0 4px; padding:12px 0 2px}
+  legend{display:none}
+  .grp-title{
+    font-size:10px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--dim); margin:0 0 10px; font-weight:600;
+  }
+  .ctl{margin-bottom:12px}
+  .ctl label{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px}
+  .ctl .name{color:var(--txt)}
+  .ctl .val{font:12px ui-monospace,Menlo,Consolas,monospace; color:var(--accent)}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px;
+    background:var(--line); border-radius:2px; outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:15px; height:15px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--panel); cursor:pointer;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px; height:15px; border-radius:50%; background:var(--accent);
+    border:2px solid var(--panel); cursor:pointer;
+  }
+  .sw{display:flex; align-items:center; gap:8px; margin-bottom:9px; cursor:pointer; user-select:none}
+  .sw input{appearance:none; width:34px; height:19px; border-radius:10px; background:var(--line);
+    position:relative; cursor:pointer; transition:background .15s; flex:0 0 auto}
+  .sw input:checked{background:var(--accent2)}
+  .sw input::after{content:""; position:absolute; top:2px; left:2px; width:15px; height:15px;
+    border-radius:50%; background:#fff; transition:left .15s}
+  .sw input:checked::after{left:17px}
+  .btns{display:flex; gap:8px; margin-top:4px}
+  button{
+    flex:1; padding:8px 10px; border-radius:7px; border:1px solid var(--line);
+    background:#21262d; color:var(--txt); font-size:12px; cursor:pointer;
+  }
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#0d1117; font-weight:700}
+  .rule{margin-bottom:14px}
+  .rule .head{display:flex; justify-content:space-between; margin-bottom:5px}
+  .rule .dot{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; vertical-align:1px}
+  .hint{color:var(--dim); font-size:10.5px; line-height:1.5; margin-top:6px}
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hud"></div>
+  </div>
+
+  <aside>
+    <h1>Schwarm<span>intelligenz</span></h1>
+    <p class="sub">Boids – drei Regeln, ein Schwarm</p>
+
+    <fieldset>
+      <div class="grp-title">Schwarm</div>
+      <div class="ctl">
+        <label><span class="name">Anzahl Quadrate</span><span class="val" id="vCount">150</span></label>
+        <input type="range" id="count" min="10" max="2000" step="10" value="150">
+      </div>
+      <div class="ctl">
+        <label><span class="name">Geschwindigkeit</span><span class="val" id="vSpeed">2.4</span></label>
+        <input type="range" id="speed" min="0.2" max="8" step="0.1" value="2.4">
+      </div>
+      <div class="ctl">
+        <label><span class="name">Sichtweite (Nachbarn)</span><span class="val" id="vPer">72</span></label>
+        <input type="range" id="per" min="10" max="220" step="2" value="72">
+      </div>
+      <div class="ctl">
+        <label><span class="name">Quadrate getrennt halten</span><span class="val" id="vSep">26</span></label>
+        <input type="range" id="sepRad" min="6" max="120" step="2" value="26">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <div class="grp-title">Die drei Regeln</div>
+      <div class="rule">
+        <div class="head"><span><span class="dot" style="background:#f85149"></span>Ausweichen</span><span class="val" id="vSepW">1.6</span></div>
+        <input type="range" id="sepW" min="0" max="4" step="0.1" value="1.6">
+      </div>
+      <div class="rule">
+        <div class="head"><span><span class="dot" style="background:#3fb950"></span>Zur Mitte</span><span class="val" id="vCohW">0.8</span></div>
+        <input type="range" id="cohW" min="0" max="4" step="0.1" value="0.8">
+      </div>
+      <div class="rule">
+        <div class="head"><span><span class="dot" style="background:#58a6ff"></span>Gleiche Richtung</span><span class="val" id="vAliW">1.0</span></div>
+        <input type="range" id="aliW" min="0" max="4" step="0.1" value="1.0">
+      </div>
+      <div class="rule">
+        <div class="head"><span><span class="dot" style="background:#d29922"></span>Kleine → große Schwärme</span><span class="val" id="vCluW">1.0</span></div>
+        <input type="range" id="cluW" min="0" max="4" step="0.1" value="1.0">
+      </div>
+      <div class="rule">
+        <div class="head"><span><span class="dot" style="background:#bc8cff"></span>Klein = schneller</span><span class="val" id="vSizeSpd">0.8</span></div>
+        <input type="range" id="sizeSpd" min="0" max="2" step="0.1" value="0.8">
+      </div>
+      <div class="ctl" style="margin-top:2px">
+        <label><span class="name">Großer Schwarm ab</span><span class="val" id="vLarge">40</span></label>
+        <input type="range" id="largeMin" min="5" max="500" step="5" value="40">
+      </div>
+      <p class="hint">Regeln auf 0 = aus. „Kleine → große Schwärme“: kleine Gruppen fliegen zum Zentrum der großen Gruppen. Gelbe Kreuze = Zentren großer Schwärme.</p>
+    </fieldset>
+
+    <fieldset>
+      <div class="grp-title">Darstellung</div>
+      <label class="sw"><input type="checkbox" id="trails" checked>Spuren (Trails)</label>
+      <label class="sw"><input type="checkbox" id="wrap" checked>Am Rand umlaufen</label>
+      <label class="sw"><input type="checkbox" id="glow" checked>Leuchten</label>
+    </fieldset>
+
+    <div class="btns">
+      <button id="pause" class="primary">Pause</button>
+      <button id="reset">Neu mischen</button>
+    </div>
+    <p class="hint">Tipp: Tasten <b>Leertaste</b> = Pause, <b>R</b> = neu mischen.</p>
+  </aside>
+
+<script>
+(() => {
+  "use strict";
+  const cv = document.getElementById("cv");
+  const ctx = cv.getContext("2d", { alpha:false });
+  const hud = document.getElementById("hud");
+
+  const P = {
+    count: 150, speed: 2.4,
+    perception: 72, sepRadius: 26,
+    sepW: 1.6, cohW: 0.8, aliW: 1.0,
+    cluW: 1.0, largeMin: 40, sizeSpeed: 0.8,
+    trails: true, wrap: true, glow: true,
+    paused: false
+  };
+
+  let W = 0, H = 0, DPR = 1;
+  const MAX_NEIGHBORS = 40;   // Optimierung: pro Quadrat höchstens so viele Nachbarn auswerten
+  const CELL = 80;            // Optimierung: Rasterzelle für Nachbarsuche
+
+  function resize(){
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width  = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = "#0d1117";
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ---------- Boid ----------
+  let xs, ys, vx, vy, ang, hue;
+
+  function makeBoids(){
+    const n = P.count;
+    xs = new Float32Array(n); ys = new Float32Array(n);
+    vx = new Float32Array(n); vy = new Float32Array(n);
+    ang= new Float32Array(n); hue= new Float32Array(n);
+    for (let i=0;i<n;i++){
+      xs[i] = Math.random()*W; ys[i] = Math.random()*H;
+      const a = Math.random()*Math.PI*2;
+      vx[i] = Math.cos(a); vy[i] = Math.sin(a);
+      ang[i] = a;
+      hue[i] = 190 + Math.random()*70; // blau → türkis/violett
+    }
+  }
+
+  // Raster: Zellen -> Indizes (optimierte Nachbarsuche statt O(n²))
+  let gw, gh, grid;
+  function buildGrid(){
+    gw = Math.max(1, Math.ceil(W/CELL));
+    gh = Math.max(1, Math.ceil(H/CELL));
+    grid = new Array(gw*gh);
+    for (let c=0;c<grid.length;c++) grid[c] = null;
+    for (let i=0;i<P.count;i++){
+      const cx = Math.min(gw-1, Math.max(0, (xs[i]/CELL)|0));
+      const cy = Math.min(gh-1, Math.max(0, (ys[i]/CELL)|0));
+      const k = cy*gw + cx;
+      (grid[k] || (grid[k] = [])).push(i);
+    }
+  }
+
+  // ---------- Cluster-Erkennung (groß/klein Schwärme) ----------
+  const CCELL = 64;              // grobes Raster: Zellen, die zusammenhängen = ein Schwarm
+  let cgw=0, cgh=0, cCellBoids=null, cCellLabel=null, clusterOf=null;
+  const clSize=[], clX=[], clY=[];
+  let clusterCount=0;
+
+  function computeClusters(){
+    cgw = Math.max(1, Math.ceil(W/CCELL));
+    cgh = Math.max(1, Math.ceil(H/CCELL));
+    const nc = cgw*cgh;
+    if (!cCellBoids || cCellBoids.length !== nc){
+      cCellBoids = new Array(nc); cCellLabel = new Int32Array(nc);
+    }
+    if (!clusterOf || clusterOf.length !== P.count) clusterOf = new Int32Array(P.count);
+    for (let i=0;i<nc;i++){ cCellBoids[i] = null; cCellLabel[i] = -1; }
+    for (let i=0;i<P.count;i++){
+      const gx = Math.min(cgw-1, Math.max(0, (xs[i]/CCELL)|0));
+      const gy = Math.min(cgh-1, Math.max(0, (ys[i]/CCELL)|0));
+      const k = gy*cgw + gx;
+      (cCellBoids[k] || (cCellBoids[k] = [])).push(i);
+    }
+    clusterCount = 0; clSize.length = 0; clX.length = 0; clY.length = 0;
+    const stack = [];
+    for (let s=0;s<nc;s++){
+      if (cCellLabel[s] !== -1) continue;
+      if (!cCellBoids[s]){ cCellLabel[s] = -2; continue; }
+      const cid = clusterCount++;
+      stack.length = 0; stack.push(s); cCellLabel[s] = cid;
+      let cnt=0, sx=0, sy=0, ax0=0, ay0=0, first=true;
+      while (stack.length){
+        const c = stack.pop();
+        const list = cCellBoids[c];
+        const gx = c % cgw, gy = (c/cgw)|0;
+        if (list){
+          for (let b=0;b<list.length;b++){
+            const i = list[b];
+            clusterOf[i] = cid; cnt++;
+            if (first){ ax0 = xs[i]; ay0 = ys[i]; first = false; }
+            let dx = xs[i]-ax0, dy = ys[i]-ay0;   // randbewusster Versatz (Wrap)
+            if (P.wrap){
+              if (dx >  W*0.5) dx -= W; else if (dx < -W*0.5) dx += W;
+              if (dy >  H*0.5) dy -= H; else if (dy < -H*0.5) dy += H;
+            }
+            sx += dx; sy += dy;
+          }
+        }
+        for (let oy=-1;oy<=1;oy++) for (let ox=-1;ox<=1;ox++){
+          if (!ox && !oy) continue;
+          let nx=gx+ox, ny=gy+oy;
+          if (P.wrap){ nx=(nx+cgw)%cgw; ny=(ny+cgh)%cgh; }
+          else if (nx<0||ny<0||nx>=cgw||ny>=cgh) continue;
+          const nk = ny*cgw+nx;
+          if (cCellLabel[nk] === -1 && cCellBoids[nk]){ cCellLabel[nk] = cid; stack.push(nk); }
+        }
+      }
+      let ccx = ax0 + sx/cnt, ccy = ay0 + sy/cnt;
+      if (P.wrap){ ccx = ((ccx%W)+W)%W; ccy = ((ccy%H)+H)%H; }
+      clSize.push(cnt); clX.push(ccx); clY.push(ccy);
+    }
+  }
+
+  function step(dt){
+    buildGrid();
+    if (P.cluW > 0 || P.sizeSpeed > 0) computeClusters();
+    const n = P.count;
+    const per2 = P.perception*P.perception;
+    const sep2 = P.sepRadius*P.sepRadius;
+    const maxSpeed = P.speed;
+    const maxForce = maxSpeed * 0.9;
+
+    // Liste der „großen" Schwärme (Regel 4)
+    const useClusters = P.cluW > 0 && clusterCount > 0;
+    const bigClusters = [];
+    if (useClusters){
+      for (let c=0;c<clusterCount;c++) if (clSize[c] >= P.largeMin) bigClusters.push(c);
+    }
+    // Regel 5: Größe -> Tempo (Referenz = größter Schwarm der Szene)
+    const useSize = P.sizeSpeed > 0 && clusterCount > 0;
+    let maxCluster = 1;
+    if (useSize) for (let c=0;c<clusterCount;c++) if (clSize[c] > maxCluster) maxCluster = clSize[c];
+
+    for (let i=0;i<n;i++){
+      const xi = xs[i], yi = ys[i];
+      // Regel 5: kleiner Schwarm -> höhere Maximalgeschwindigkeit
+      let mSpeed = maxSpeed, mForce = maxForce;
+      if (useSize){
+        const r = clSize[clusterOf[i]] / maxCluster;   // 1 = größter Schwarm
+        let f = 1 + P.sizeSpeed * (1 - r);
+        if (f < 0.25) f = 0.25;
+        mSpeed = maxSpeed * f;
+        mForce = mSpeed * 0.9;
+      }
+      let cohX=0, cohY=0, aliX=0, aliY=0, sepX=0, sepY=0;
+      let nCoh=0, nAli=0, nSep=0;
+
+      const cx = Math.min(gw-1, Math.max(0, (xi/CELL)|0));
+      const cy = Math.min(gh-1, Math.max(0, (yi/CELL)|0));
+
+      // umliegende Zellen durchsuchen (3x3), abhängig vom Umgebungsradius
+      const ring = Math.max(1, Math.ceil(P.perception/CELL));
+      let checked = 0, used = 0;
+
+      outer:
+      for (let oy=-ring; oy<=ring; oy++){
+        for (let ox=-ring; ox<=ring; ox++){
+          let gx = cx+ox, gy = cy+oy;
+          if (P.wrap){
+            gx = (gx+gw)%gw; gy = (gy+gh)%gh;
+          } else if (gx<0||gy<0||gx>=gw||gy>=gh) continue;
+          const bucket = grid[gy*gw + gx];
+          if (!bucket) continue;
+          for (let b=0;b<bucket.length;b++){
+            const j = bucket[b];
+            if (j===i) continue;
+            let dx = xi - xs[j], dy = yi - ys[j];
+            if (P.wrap){ // kürzeste Distanz über den Rand
+              if (dx >  W*0.5) dx -= W; else if (dx < -W*0.5) dx += W;
+              if (dy >  H*0.5) dy -= H; else if (dy < -H*0.5) dy += H;
+            }
+            const d2 = dx*dx + dy*dy;
+            if (d2 > per2) continue;
+            checked++;
+            if (checked >= MAX_NEIGHBORS*4) break outer;
+            // Cohesion + Alignment
+            cohX += xs[j]; cohY += ys[j]; nCoh++;
+            aliX += vx[j]; aliY += vy[j]; nAli++; used++;
+            // Separation (näher als sepRadius)
+            if (d2 < sep2 && d2 > 1e-6){
+              const inv = 1/Math.sqrt(d2);
+              sepX += dx*inv/d2*100; sepY += dy*inv/d2*100; nSep++;
+            }
+            if (used >= MAX_NEIGHBORS) break outer;
+          }
+        }
+      }
+
+      let ax=0, ay=0;
+      if (nSep){ // Regel 1: Ausweichen
+        const [sx,sy] = steer(sepX, sepY, maxForce);
+        ax += sx*P.sepW; ay += sy*P.sepW;
+      }
+      if (nCoh){
+        const [sx,sy] = steer((cohX/nCoh)-xi, (cohY/nCoh)-yi, maxForce);
+        ax += sx*P.cohW; ay += sy*P.cohW;
+      }
+      if (nAli){
+        const [sx,sy] = steer(aliX/nAli, aliY/nAli, maxForce);
+        ax += sx*P.aliW; ay += sy*P.aliW;
+      }
+      if (useClusters && bigClusters.length && clSize[clusterOf[i]] < P.largeMin){
+        // Regel 4: kleiner Schwarm -> Mitte des nächstgelegenen großen Schwarms
+        let best=-1, bd=Infinity;
+        for (let k=0;k<bigClusters.length;k++){
+          const c = bigClusters[k];
+          let dx = clX[c]-xi, dy = clY[c]-yi;
+          if (P.wrap){
+            if (dx >  W*0.5) dx -= W; else if (dx < -W*0.5) dx += W;
+            if (dy >  H*0.5) dy -= H; else if (dy < -H*0.5) dy += H;
+          }
+          const d2 = dx*dx+dy*dy;
+          if (d2 < bd){ bd = d2; best = c; }
+        }
+        if (best >= 0){
+          let dx = clX[best]-xi, dy = clY[best]-yi;
+          if (P.wrap){
+            if (dx >  W*0.5) dx -= W; else if (dx < -W*0.5) dx += W;
+            if (dy >  H*0.5) dy -= H; else if (dy < -H*0.5) dy += H;
+          }
+          const [sx,sy] = steer(dx, dy, maxForce);
+          ax += sx*P.cluW; ay += sy*P.cluW;
+        }
+      }
+
+      // Kraft begrenzen
+      const af = Math.hypot(ax, ay);
+      if (af > mForce){ ax = ax/af*mForce; ay = ay/af*mForce; }
+
+      let nvx = vx[i] + ax*dt;
+      let nvy = vy[i] + ay*dt;
+
+      // Zielgeschwindigkeit aktiv herstellen (Richtung aus Kräften, Betrag = mSpeed)
+      let sp = Math.hypot(nvx, nvy);
+      if (sp < 1e-6){ nvx = Math.cos(ang[i]); nvy = Math.sin(ang[i]); sp = 1; }
+      const k = 1 - Math.exp(-4*dt);          // Annäherung an Zielgeschwindigkeit
+      const ns = sp + (mSpeed - sp)*k;
+      nvx = nvx/sp*ns; nvy = nvy/sp*ns;
+
+      vx[i]=nvx; vy[i]=nvy;
+
+      let x = xi + nvx*dt, y = yi + nvy*dt;
+      if (P.wrap){
+        if (x < 0) x += W; else if (x >= W) x -= W;
+        if (y < 0) y += H; else if (y >= H) y -= H;
+      } else {
+        if (x < 0 || x > W){ nvx=-nvx; vx[i]=nvx; x = Math.min(W,Math.max(0,x)); }
+        if (y < 0 || y > H){ nvy=-nvy; vy[i]=nvy; y = Math.min(H,Math.max(0,y)); }
+      }
+      xs[i]=x; ys[i]=y;
+      ang[i] = Math.atan2(nvy, nvx);
+    }
+  }
+
+  function steer(dx, dy, max){
+    const m = Math.hypot(dx, dy);
+    if (m < 1e-6) return [0,0];
+    return [dx/m*max, dy/m*max];
+  }
+
+  function draw(){
+    if (P.trails){
+      ctx.fillStyle = "rgba(13,17,23,0.18)";
+      ctx.fillRect(0,0,W,H);
+    } else {
+      ctx.fillStyle = "#0d1117";
+      ctx.fillRect(0,0,W,H);
+    }
+    if (P.glow){ ctx.shadowBlur = 8; }
+    const S = 2.3; // halbe Quadratkante (skaliert leicht mit Geschwindigkeit)
+    for (let i=0;i<P.count;i++){
+      const h = hue[i];
+      ctx.fillStyle = `hsl(${h} 85% 62%)`;
+      if (P.glow) ctx.shadowColor = `hsl(${h} 85% 55%)`;
+      ctx.save();
+      ctx.translate(xs[i], ys[i]);
+      ctx.rotate(ang[i]);
+      ctx.fillRect(-S, -S, S*2, S*2);
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+
+    // Zentren großer Schwärme markieren (Regel 4)
+    if (P.cluW > 0 && clusterCount > 0){
+      ctx.strokeStyle = "rgba(210,153,34,0.9)";
+      ctx.lineWidth = 1.5;
+      for (let c=0;c<clusterCount;c++){
+        if (clSize[c] < P.largeMin) continue;
+        const x = clX[c], y = clY[c], r = Math.min(26, 8 + Math.sqrt(clSize[c]));
+        ctx.beginPath();
+        ctx.moveTo(x-r,y); ctx.lineTo(x+r,y);
+        ctx.moveTo(x,y-r); ctx.lineTo(x,y+r);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.stroke();
+      }
+    }
+  }
+
+  // ---------- Loop ----------
+  let last = performance.now(), fps = 60, fpsT = 0, frames = 0;
+  function loop(now){
+    const dtms = Math.min(now - last, 40); // Sprung-Begrenzung
+    last = now;
+    if (!P.paused){
+      step(dtms * 0.06); // auf Sekunden-Basis skaliert
+      draw();
+    }
+    // FPS
+    frames++; fpsT += dtms;
+    if (fpsT >= 500){ fps = Math.round(frames*1000/fpsT); frames=0; fpsT=0; updateHud(); }
+    requestAnimationFrame(loop);
+  }
+
+  function updateHud(){
+    let big = 0;
+    if (P.cluW > 0) for (let c=0;c<clusterCount;c++) if (clSize[c] >= P.largeMin) big++;
+    hud.innerHTML = `<b>${P.count}</b> Quadrate · <b>${fps}</b> FPS · `
+      + `Tempo <b>${P.speed.toFixed(1)}</b>`
+      + ((P.cluW > 0 || P.sizeSpeed > 0) ? ` · <b>${clusterCount}</b> Schwärme (${big} groß)` : '')
+      + `${P.paused ? ' · <b>PAUSE</b>':''}`;
+  }
+
+  // ---------- Controls ----------
+  const bind = (id, valId, key, fmt) => {
+    const el = document.getElementById(id), out = document.getElementById(valId);
+    const sync = () => { out.textContent = fmt ? fmt(P[key]) : P[key]; };
+    el.addEventListener("input", () => {
+      P[key] = parseFloat(el.value);
+      if (key === "count"){ // Anzahl ändern -> Boids sanft neu aufbauen
+        resizeArrays(P.count);
+      }
+      sync();
+      updateHud();
+    });
+    sync();
+    return el;
+  };
+
+  function resizeArrays(n){
+    const oldN = xs ? xs.length : 0;
+    const old = { xs, ys, vx, vy, ang, hue };
+    P.count = n | 0;
+    makeBoids();
+    // bestehende übernehmen, neue zufällig
+    if (oldN){
+      const m = Math.min(oldN, P.count);
+      for (let i=0;i<m;i++){
+        xs[i]=old.xs[i]; ys[i]=old.ys[i];
+        vx[i]=old.vx[i]; vy[i]=old.vy[i];
+        ang[i]=old.ang[i]; hue[i]=old.hue[i];
+      }
+    }
+  }
+
+  bind("count","vCount","count");
+  bind("speed","vSpeed","speed", v=>v.toFixed(1));
+  bind("per","vPer","perception");
+  bind("sepRad","vSep","sepRadius");
+  bind("sepW","vSepW","sepW", v=>v.toFixed(1));
+  bind("cohW","vCohW","cohW", v=>v.toFixed(1));
+  bind("aliW","vAliW","aliW", v=>v.toFixed(1));
+  bind("cluW","vCluW","cluW", v=>v.toFixed(1));
+  bind("largeMin","vLarge","largeMin");
+  bind("sizeSpd","vSizeSpd","sizeSpeed", v=>v.toFixed(1));
+
+  const chk = (id,key) => {
+    const el = document.getElementById(id);
+    P[key] = el.checked;
+    el.addEventListener("change", ()=>{ P[key]=el.checked; if(key==="trails"||key==="glow"){ctx.clearRect(0,0,W,H);} });
+  };
+  chk("trails","trails"); chk("wrap","wrap"); chk("glow","glow");
+
+  const pauseBtn = document.getElementById("pause");
+  function setPause(v){ P.paused = v; pauseBtn.textContent = v ? "Weiter" : "Pause"; updateHud(); }
+  pauseBtn.addEventListener("click", ()=> setPause(!P.paused));
+  document.getElementById("reset").addEventListener("click", ()=>{ makeBoids(); ctx.fillStyle="#0d1117"; ctx.fillRect(0,0,W,H); });
+  window.addEventListener("keydown", e=>{
+    if (e.code==="Space"){ e.preventDefault(); setPause(!P.paused); }
+    else if (e.key==="r"||e.key==="R"){ makeBoids(); }
+  });
+
+  window.addEventListener("resize", resize);
+
+  // ---------- Init ----------
+  resize();
+  makeBoids();
+  updateHud();
+  requestAnimationFrame(loop);
+
+  // Debug/Test-Zugriff (nur lesend) – erlaubt Verifikation der Regeln
+  window.__sim = {
+    P,
+    snapshot(){
+      return {
+        count: P.count, vx: Array.from(vx), vy: Array.from(vy),
+        clusterOf: clusterOf ? Array.from(clusterOf) : [],
+        clSize: clSize.slice(), clX: clX.slice(), clY: clY.slice(),
+        clusterCount
+      };
+    }
+  };
+})();
+</script>
+</body>
+</html>
