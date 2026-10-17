@@ -1,0 +1,2 @@
+# swarmintelligence
+Simulation of swarmintellence
