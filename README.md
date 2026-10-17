@@ -99,7 +99,7 @@ A read-only debug hook is exposed for testing and inspection:
 window.__sim.P              // live parameters
 window.__sim.snapshot()     // positions/velocities, cluster ids and sizes
 ```
-
+Made with Deepseek V4.1 Flash in 15 Minutes.
 ## License
 
 MIT
